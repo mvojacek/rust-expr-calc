@@ -43,7 +43,9 @@ fn main() {
 
         assert_eq!(buf.pop(), Some('\n')); //newline
 
-        buf = "(3+4)*2+1+2+3*(2+3)".to_string();
+        if buf.is_empty() {
+            buf = "((3+4)*2+1)*(2+3*(2+3))".to_string();
+        }
 
         println!("Expression: {}", buf);
 
@@ -99,25 +101,33 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
         println!("{}", head);
         if p[0] {
             p[0] = operator_pass(&head, Op::Mul, |a, b| Ok(a * b))?;
-            paren_pass(&head)?;
+            if paren_pass(&head)? {
+                p = [true; 4];
+            };
             println!("{}", head);
         }
 
         if p[1] {
             p[1] = operator_pass(&head, Op::Div, |a, b| if !b.is_zero() { Ok(a / b) } else { Err(Box::new("Div by zero")) })?;
-            paren_pass(&head)?;
+            if paren_pass(&head)? {
+                p = [true; 4];
+            };
             println!("{}", head);
         }
 
         if p[2] {
             p[2] = operator_pass(&head, Op::Add, |a, b| Ok(a + b))?;
-            paren_pass(&head)?;
+            if paren_pass(&head)? {
+                p = [true; 4];
+            };
             println!("{}", head);
         }
 
         if p[3] {
             p[3] = operator_pass(&head, Op::Sub, |a, b| Ok(a - b))?;
-            paren_pass(&head)?;
+            if paren_pass(&head)? {
+                p = [true; 4];
+            };
             println!("{}", head);
         }
 
@@ -231,7 +241,8 @@ fn lock_pass<N: MyNum>(head: &Node<Expr<N>>) {
         });
 }
 
-fn paren_pass<N: MyNum>(head: &Node<Expr<N>>) -> Result<(), (Option<usize>, CalcErr<N>)> {
+fn paren_pass<N: MyNum>(head: &Node<Expr<N>>) -> Result<bool, (Option<usize>, CalcErr<N>)> {
+    let mut second_pass = false;
     head.list_iter()
         .enumerate()
         .filter(|(_, n)| n.use_value(|ex| *ex == Paren::Open.into()))
@@ -261,12 +272,14 @@ fn paren_pass<N: MyNum>(head: &Node<Expr<N>>) -> Result<(), (Option<usize>, Calc
             next.cut();
             open_paren.bor_mut().data = num.into();
 
+            second_pass = true;
+
             Ok(())
         })?;
 
     lock_pass(head);
 
-    Ok(())
+    Ok(second_pass)
 }
 
 fn paren_mut_adjacent_num<N: MyNum, F>(n: &Node<Expr<N>>, paren: Paren, func: F)
