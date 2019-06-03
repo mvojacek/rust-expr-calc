@@ -49,11 +49,11 @@ impl<T: Display> Display for Node<T> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         self.iter_walk_back().collect::<Vec<_>>().into_iter().rev().try_for_each(|n| {
             n.bor().data.fmt(f)?;
-            f.write_str("<-")
+            f.write_str(" <- ")
         })?;
         self.bor().data.fmt(f)?;
         self.iter_walk().try_for_each(|n| {
-            f.write_str(" ")?; //FIXME
+            f.write_str(" -> ")?;
             n.bor().data.fmt(f)
         })
     }
@@ -351,8 +351,8 @@ fn make_linkedlist_for_tests() -> [Node<i32>; 4] {
         ptr::write(&mut n[3], n[2].insert_after(3));
         n
     };
-    assert_list_eq!(&arr[0], "0->1->2->3");
-    assert_list_eq!(&arr[0], "0->1->2->3");
+    assert_list_eq!(&arr[0], "0 -> 1 -> 2 -> 3");
+    assert_list_eq!(&arr[0], "0 -> 1 -> 2 -> 3");
     arr
 }
 
@@ -384,7 +384,7 @@ fn test_list_iter_val() {
 #[test]
 fn test_find_distance() {
     let n = make_linkedlist_for_tests();
-    assert_list_eq!(&n[0], "0->1->2->3");
+    assert_list_eq!(&n[0], "0 -> 1 -> 2 -> 3");
     let x = Node::new(4);
 
     assert_eq!(n[0].list_distance(&n[2]), Some(2));
@@ -399,7 +399,7 @@ fn test_find_distance() {
 fn test_equal() {
     let n = make_linkedlist_for_tests();
     n[2].bor_mut().data = 1;
-    assert_list_eq!(&n[0], "0->1->1->3");
+    assert_list_eq!(&n[0], "0 -> 1 -> 1 -> 3");
 
     assert_eq!(n[1] == n[0].next().unwrap(), true);
     assert_eq!(n[1] == n[1].next().unwrap(), false);
@@ -408,7 +408,7 @@ fn test_equal() {
 #[test]
 fn test_head_tail() {
     let n = make_linkedlist_for_tests();
-    assert_list_eq!(&n[0], "0->1->2->3");
+    assert_list_eq!(&n[0], "0 -> 1 -> 2 -> 3");
 
     assert_eq!(n[3].head().bor().data, 0);
     assert_eq!(n[2].tail().bor().data, 3);
@@ -417,17 +417,17 @@ fn test_head_tail() {
 #[test]
 fn test_cut() {
     let n = make_linkedlist_for_tests();
-    assert_list_eq!(n[0], "0->1->2->3");
+    assert_list_eq!(n[0], "0 -> 1 -> 2 -> 3");
 
     n[2].cut();
-    assert_list_eq!(n[0], "0->1->3");
+    assert_list_eq!(n[0], "0 -> 1 -> 3");
     assert_list_eq!(n[2], "2");
 
     n[2].cut();
     assert_list_eq!(n[2], "2");
 
     n[0].cut();
-    assert_list_eq!(n[1], "1->3");
+    assert_list_eq!(n[1], "1 -> 3");
     assert_list_eq!(n[0], "0");
 
     n[3].cut();
@@ -445,15 +445,15 @@ fn test_link() {
     assert_list_eq!(&n1, "1");
 
     n1.link(n2.clone());
-    assert_list_eq!(&n1, "1->2");
+    assert_list_eq!(&n1, "1 -> 2");
 
     n2.link(n3.clone());
-    assert_list_eq!(&n1, "1->2->3");
-    assert_list_eq!(&n2, "1<-2->3");
+    assert_list_eq!(&n1, "1 -> 2 -> 3");
+    assert_list_eq!(&n2, "1 <- 2 -> 3");
 
     n1.link(n3.clone());
-    assert_list_eq!(&n1, "1->3");
-    assert_list_eq!(&n2, "1<-2->3");
+    assert_list_eq!(&n1, "1 -> 3");
+    assert_list_eq!(&n2, "1 <- 2 -> 3");
 }
 
 #[test]
@@ -465,9 +465,9 @@ fn test_insert_after() {
 
     n1.link(n2.clone());
     n1.insert_after_node(&n3);
-    assert_list_eq!(&n1, "1->3->2");
+    assert_list_eq!(&n1, "1 -> 3 -> 2");
     n2.insert_after_node(&n4);
-    assert_list_eq!(&n1, "1->3->2->4");
+    assert_list_eq!(&n1, "1 -> 3 -> 2 -> 4");
 }
 
 #[test]
@@ -479,8 +479,8 @@ fn test_insert_before() {
 
     n1.link(n2.clone());
     n2.clone().insert_before_node(&n3);
-    assert_list_eq!(&n1, "1->3->2");
+    assert_list_eq!(&n1, "1 -> 3 -> 2");
     n1.clone().insert_before_node(&n4);
-    assert_list_eq!(&n1, "4<-1->3->2");
-    assert_list_eq!(&n4, "4->1->3->2");
+    assert_list_eq!(&n1, "4 <- 1 -> 3 -> 2");
+    assert_list_eq!(&n4, "4 -> 1 -> 3 -> 2");
 }

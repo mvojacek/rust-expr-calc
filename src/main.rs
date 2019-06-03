@@ -63,6 +63,30 @@ fn main() {
     }
 }
 
+#[test]
+fn test_calc_div_trunc() {
+    assert_eq!(calculate10::<i64>(&"9/2".to_string()).unwrap(), 4);
+}
+
+#[test]
+fn test_calc_precedence() {
+    assert_eq!(calculate10::<i64>(&"5+6*7-9/2".to_string()).unwrap(), 43);
+}
+
+#[test]
+fn test_calc_parens() {
+    assert_eq!(calculate10::<i64>(&"(5+6)*7-9/2".to_string()).unwrap(), 73);
+}
+
+#[test]
+fn test_calc_parens_lock() {
+    assert_eq!(calculate10::<i64>(&"(3+4)*2+1+2+3*(2+3)".to_string()).unwrap(), 32);
+}
+
+#[test]
+fn test_calc_parens_nested() {
+    assert_eq!(calculate10::<i64>(&"((3+4)*2+1)*(2+3*(2+3))".to_string()).unwrap(), 255);
+}
 
 enum CalcErr<N: MyNum> {
     EmptyExpr,
@@ -92,6 +116,16 @@ impl<N: MyNum> Display for CalcErr<N> where <N as Num>::FromStrRadixErr: Display
     }
 }
 
+impl<N: MyNum> Debug for CalcErr<N> where CalcErr<N>: Display {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
+        Display::fmt(self, f)
+    }
+}
+
+fn calculate10<N: MyNum>(expr: &String) -> Result<N, (Option<usize>, CalcErr<N>)> {
+    calculate(expr, 10)
+}
+
 fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, CalcErr<N>)> {
     let head = tokenize::<N>(expr, base).map_err(|e| (None, e))?.head.ok_or((None, CalcErr::EmptyExpr))?;
 
@@ -103,6 +137,7 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
             p[0] = operator_pass(&head, Op::Mul, |a, b| Ok(a * b))?;
             if paren_pass(&head)? {
                 p = [true; 4];
+                continue;
             };
             println!("{}", head);
         }
@@ -111,6 +146,7 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
             p[1] = operator_pass(&head, Op::Div, |a, b| if !b.is_zero() { Ok(a / b) } else { Err(Box::new("Div by zero")) })?;
             if paren_pass(&head)? {
                 p = [true; 4];
+                continue;
             };
             println!("{}", head);
         }
@@ -119,6 +155,7 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
             p[2] = operator_pass(&head, Op::Add, |a, b| Ok(a + b))?;
             if paren_pass(&head)? {
                 p = [true; 4];
+                continue;
             };
             println!("{}", head);
         }
@@ -127,6 +164,7 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
             p[3] = operator_pass(&head, Op::Sub, |a, b| Ok(a - b))?;
             if paren_pass(&head)? {
                 p = [true; 4];
+                continue;
             };
             println!("{}", head);
         }
