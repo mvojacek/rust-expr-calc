@@ -43,6 +43,8 @@ fn main() {
 
         assert_eq!(buf.pop(), Some('\n')); //newline
 
+        buf = "(3+4)*2+1+2+3*(2+3)".to_string();
+
         println!("Expression: {}", buf);
 
         let result = calculate::<i64>(&buf, 10);
@@ -131,7 +133,7 @@ fn calculate<N: MyNum>(expr: &String, base: u32) -> Result<N, (Option<usize>, Ca
 
     let expr = head.bor().data;
     match expr {
-        Expr::Num(n) => Ok(n),
+        Expr::Num { n, locked } => Ok(n),
         _ => unreachable!(),
     }
 }
@@ -148,7 +150,7 @@ fn tokenize<N: MyNum>(expr: &String, base: u32) -> Result<NodeList<Expr<N>>, Cal
             }
             SplitType::Match(s) => {
                 match N::from_str_radix(s, base) {
-                    Ok(n) => Ok(Expr::Num(n)),
+                    Ok(n) => Ok(n.into()),
                     Err(e) => Err(CalcErr::ParseInt(e))
                 }
             }
@@ -166,21 +168,37 @@ fn operator_pass<N: MyNum, F>(head: &Node<Expr<N>>, op: Op, func: F) -> Result<b
         .into_iter()
         .try_for_each(|(idx, n)| {
             let prev = n.prev().ok_or((Some(idx), CalcErr::OpNoPrev))?;
+            let next = n.next().ok_or((Some(idx), CalcErr::OpNoNext))?;
+
             let prev_n = match prev.bor().data {
                 Expr::Paren(Paren::Close) => {
                     second_pass = true;
+                    match &mut next.bor_mut().data {
+                        Expr::Num { n, locked } => {
+                            *locked = true
+                        }
+                        _ => {}
+                    };
                     return Ok(());
                 }
-                Expr::Num(n) => n,
+                Expr::Num { n, locked: false } => n,
+                Expr::Num { n, locked: true } => return Ok(()),
                 _ => return Err((Some(idx), CalcErr::OpBadPrev))
             };
-            let next = n.next().ok_or((Some(idx), CalcErr::OpNoNext))?;
+
             let next_n = match next.bor().data {
                 Expr::Paren(Paren::Open) => {
                     second_pass = true;
+                    match &mut prev.bor_mut().data {
+                        Expr::Num { n, locked } => {
+                            *locked = true
+                        }
+                        _ => {}
+                    };
                     return Ok(());
                 }
-                Expr::Num(n) => n,
+                Expr::Num { n, locked: false } => n,
+                Expr::Num { n, locked: true } => return Ok(()),
                 _ => return Err((Some(idx), CalcErr::OpBadNext))
             };
 
@@ -192,7 +210,7 @@ fn operator_pass<N: MyNum, F>(head: &Node<Expr<N>>, op: Op, func: F) -> Result<b
 
             next.cut();
             n.cut();
-            prev.bor_mut().data = Expr::Num(result);
+            prev.bor_mut().data = result.into();
 
             Ok(())
         })?;
@@ -200,16 +218,29 @@ fn operator_pass<N: MyNum, F>(head: &Node<Expr<N>>, op: Op, func: F) -> Result<b
     Ok(second_pass)
 }
 
+fn lock_pass<N: MyNum>(head: &Node<Expr<N>>) {
+    head.list_iter()
+        .filter_map(|n| n.use_value(|ex| match *ex {
+            Expr::Paren(p) => Some(p),
+            _ => None
+        }).map(|p| (n, p)))
+        .for_each(|(n, p)| {
+            paren_mut_adjacent_num(&n, p, |num, locked| {
+                *locked = true;
+            })
+        });
+}
+
 fn paren_pass<N: MyNum>(head: &Node<Expr<N>>) -> Result<(), (Option<usize>, CalcErr<N>)> {
     head.list_iter()
         .enumerate()
-        .filter(|(_, n)| n.use_value(|ex| *ex == Expr::Paren(Paren::Open)))
+        .filter(|(_, n)| n.use_value(|ex| *ex == Paren::Open.into()))
         .collect::<Vec<_>>()
         .into_iter()
-        .try_for_each(|(idx, n)| {
-            let next = n.next().ok_or((Some(idx), CalcErr::ParenStray))?;
+        .try_for_each(|(idx, open_paren)| {
+            let next = open_paren.next().ok_or((Some(idx), CalcErr::ParenStray))?;
             let num = match next.bor().data {
-                Expr::Num(n) => n,
+                Expr::Num { n, locked } => n,
                 Expr::Paren(Paren::Open) => return Ok(()),
                 _ => return Err((Some(idx), CalcErr::ParenStray)),
             };
@@ -219,17 +250,80 @@ fn paren_pass<N: MyNum>(head: &Node<Expr<N>>) -> Result<(), (Option<usize>, Calc
                 _ => return Ok(())
             };
 
+            paren_mut_adjacent_num(&close_paren, Paren::Close, |n, locked| {
+                *locked = false;
+            });
+            paren_mut_adjacent_num(&open_paren, Paren::Open, |n, locked| {
+                *locked = false;
+            });
+
             close_paren.cut();
             next.cut();
-            n.bor_mut().data = Expr::Num(num);
+            open_paren.bor_mut().data = num.into();
 
             Ok(())
-        })
+        })?;
+
+    lock_pass(head);
+
+    Ok(())
+}
+
+fn paren_mut_adjacent_num<N: MyNum, F>(n: &Node<Expr<N>>, paren: Paren, func: F)
+    where F: FnOnce(&mut N, &mut bool) {
+    match paren {
+        Paren::Open => {
+            match n.prev() {
+                Some(n) => n.use_value(|ex| {
+                    match ex {
+                        Expr::Op(_) => {
+                            match n.prev() {
+                                Some(n) => {
+                                    match &mut n.bor_mut().data {
+                                        Expr::Num { n, locked } => {
+                                            func(n, locked);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }),
+                _ => {}
+            }
+        }
+        Paren::Close => {
+            match n.next() {
+                Some(n) => n.use_value(|ex| {
+                    match ex {
+                        Expr::Op(_) => {
+                            match n.next() {
+                                Some(n) => {
+                                    match &mut n.bor_mut().data {
+                                        Expr::Num { n, locked } => {
+                                            func(n, locked);
+                                        }
+                                        _ => {}
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+                        _ => {}
+                    }
+                }),
+                _ => {}
+            }
+        }
+    }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, Copy)]
 enum Expr<N: MyNum> {
-    Num(N),
+    Num { n: N, locked: bool },
     Op(Op),
     Paren(Paren),
 }
@@ -237,7 +331,7 @@ enum Expr<N: MyNum> {
 impl<N: MyNum> Expr<N> {
     fn is_num(&self) -> bool {
         match *self {
-            Expr::Num(_) => true,
+            Expr::Num { n, locked } => true,
             _ => false,
         }
     }
@@ -268,7 +362,7 @@ impl<N: MyNum + Display> Display for Expr<N> {
 impl<N: MyNum + Display> Display for Expr<N> {
     fn fmt(&self, f: &mut Formatter) -> Result<(), Error> {
         match self {
-            Expr::Num(n) => f.write_fmt(format_args!("{}", n)),
+            Expr::Num { n, locked } => f.write_fmt(format_args!("{}{}", n, if *locked { "!" } else { "" })),
             Expr::Op(op) => f.write_fmt(format_args!("{}", op)),
             Expr::Paren(p) => f.write_fmt(format_args!("{}", p))
         }
@@ -277,7 +371,7 @@ impl<N: MyNum + Display> Display for Expr<N> {
 
 impl<N: MyNum> From<N> for Expr<N> {
     fn from(n: N) -> Self {
-        Expr::Num(n)
+        Expr::Num { n, locked: false }
     }
 }
 
